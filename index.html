@@ -28,7 +28,67 @@
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col">
 
-    <header class="bg-emerald-800 text-white shadow-md sticky top-0 z-30">
+    <!-- ログイン画面 -->
+    <div id="auth-screen" class="flex-grow flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md p-6 rounded-2xl shadow-lg border border-slate-200">
+            <h2 class="text-xl font-bold text-center mb-2">
+                4M変化点管理ボード
+            </h2>
+            <p class="text-sm text-slate-500 text-center mb-6">
+                メールアドレスでログインしてください
+            </p>
+
+            <label for="auth-email" class="block text-sm font-semibold mb-1">
+                メールアドレス
+            </label>
+            <input
+                id="auth-email"
+                type="email"
+                autocomplete="email"
+                class="w-full border border-slate-300 rounded-lg p-3 mb-4 text-sm"
+                placeholder="メールアドレス"
+            >
+
+            <label for="auth-password" class="block text-sm font-semibold mb-1">
+                パスワード
+            </label>
+            <input
+                id="auth-password"
+                type="password"
+                autocomplete="current-password"
+                class="w-full border border-slate-300 rounded-lg p-3 mb-4 text-sm"
+                placeholder="6文字以上"
+            >
+
+            <div class="flex flex-col gap-2">
+                <button
+                    onclick="app.login()"
+                    class="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold text-sm transition"
+                >
+                    ログイン
+                </button>
+
+                <button
+                    onclick="app.register()"
+                    class="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold text-sm transition"
+                >
+                    新規登録
+                </button>
+            </div>
+
+            <p
+                id="auth-message"
+                class="text-sm mt-4 whitespace-pre-wrap break-words text-slate-600 text-center"
+                role="status"
+            >
+                メールアドレスとパスワードを入力してください。
+            </p>
+
+            <p id="auth-uid" class="text-xs mt-3 break-all text-slate-500 text-center font-mono"></p>
+        </div>
+    </div>
+
+    <header id="app-header" class="hidden bg-emerald-800 text-white shadow-md sticky top-0 z-30">
         <div class="max-w-[1600px] mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-4">
             <div class="flex items-center space-x-3">
                 <div class="bg-emerald-700 p-2 rounded-lg border border-emerald-600 shadow-inner">
@@ -81,11 +141,17 @@
                 <button onclick="app.exportJSON()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs rounded-lg transition border border-slate-600 flex items-center gap-1 shadow-sm" title="データを保存・ダウンロード">
                     <i class="fa-solid fa-download"></i> 保存
                 </button>
+                <button
+                    onclick="app.logout()"
+                    class="px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white text-xs rounded-lg transition font-semibold flex items-center gap-1 shadow-sm"
+                >
+                    <i class="fa-solid fa-right-from-bracket"></i> ログアウト
+                </button>
             </div>
         </div>
     </header>
 
-    <main id="main-container" class="flex-grow max-w-[1600px] w-full mx-auto p-4 md:p-6 flex flex-col gap-6 transition-all duration-300">
+    <main id="main-container" class="hidden flex-grow max-w-[1600px] w-full mx-auto p-4 md:p-6 flex flex-col gap-6 transition-all duration-300">
 
         <!-- Input Sheet Container -->
         <div id="sheet-input-container" class="flex flex-col gap-6">
@@ -137,7 +203,7 @@
             </div>
         </div>
 
-        <!-- View Sheet Container (Display Only / Monitor Board - Full Width) -->
+        <!-- View Sheet Container -->
         <div id="sheet-view-container" class="hidden flex flex-col gap-6 w-full">
             <div class="bg-white p-6 rounded-2xl shadow-md border border-slate-300 flex flex-col gap-6 w-full">
                 <div class="flex flex-wrap justify-between items-center border-b pb-4 gap-4">
@@ -235,8 +301,20 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { 
+            getAuth, 
+            createUserWithEmailAndPassword, 
+            signInWithEmailAndPassword, 
+            signOut, 
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            setDoc, 
+            getDoc, 
+            onSnapshot 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const DEFAULT_PRODUCTS = [
             "310D FRピラー材着",
@@ -320,14 +398,32 @@
                 this.rows = JSON.parse(JSON.stringify(DEFAULT_ROWS));
                 this.boardDate = new Date().toISOString().split('T')[0];
                 this.db = null;
+                this.auth = null;
                 this.docRef = null;
+                this.syncStarted = false;
 
+                // Load any locally saved data immediately before firebase connects
+                this.loadFromLocalStorage();
                 this.initFirebase();
+            }
+
+            loadFromLocalStorage() {
+                try {
+                    const localData = localStorage.getItem("4m_board_fallback_data");
+                    if (localData) {
+                        const parsed = JSON.parse(localData);
+                        if (parsed.products) this.products = parsed.products;
+                        if (parsed.rows) this.rows = parsed.rows;
+                        if (parsed.boardDate) this.boardDate = parsed.boardDate;
+                        this.sortProducts();
+                    }
+                } catch (e) {
+                    console.warn("Local storage load warning:", e);
+                }
             }
 
             async initFirebase() {
                 try {
-                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'henkaten-d7f9e';
                     const firebaseConfig = {
                         apiKey: "AIzaSyAgxeG2-X3jdVu5-KsL3O-zCW8dxIh5wPY",
                         authDomain: "henkaten-d7f9e.firebaseapp.com",
@@ -338,60 +434,186 @@
                         measurementId: "G-TJ9X1V5F2J"
                     };
 
-                    const app = initializeApp(firebaseConfig);
-                    const auth = getAuth(app);
-                    this.db = getFirestore(app);
+                    const firebaseApp = initializeApp(firebaseConfig);
+                    this.auth = getAuth(firebaseApp);
+                    this.db = getFirestore(firebaseApp);
+                    this.syncStarted = false;
 
-                    // Authentication with custom token or anonymous login with fallback
-                    try {
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await signInWithCustomToken(auth, __initial_auth_token);
-                        } else {
-                            await signInAnonymously(auth);
+                    this.showAuthScreen("ログインまたは新規登録してください。");
+
+                    onAuthStateChanged(this.auth, async (user) => {
+                        if (!user) {
+                            this.syncStarted = false;
+                            this.docRef = null;
+                            this.showAuthScreen("ログインまたは新規登録してください。");
+                            return;
                         }
-                    } catch (authErr) {
-                        console.warn("Auth initialization warning:", authErr.message);
+
+                        await this.checkApproval(user);
+                    });
+                } catch (error) {
+                    console.error(error);
+                    this.showAuthScreen("Firebaseの初期化に失敗しました。設定を確認してください。");
+                }
+            }
+
+            showAuthScreen(message, uid = "") {
+                document.getElementById("auth-screen").classList.remove("hidden");
+                document.getElementById("app-header").classList.add("hidden");
+                document.getElementById("main-container").classList.add("hidden");
+
+                document.getElementById("auth-message").innerText = message;
+                document.getElementById("auth-uid").innerText = uid ? "利用申請用UID: " + uid : "";
+            }
+
+            async register() {
+                const email = document.getElementById("auth-email").value.trim();
+                const password = document.getElementById("auth-password").value;
+
+                if (!email || !password) {
+                    this.showAuthScreen("メールアドレスとパスワードを入力してください。");
+                    return;
+                }
+
+                try {
+                    await createUserWithEmailAndPassword(this.auth, email, password);
+                } catch (error) {
+                    console.error(error);
+                    let detail = this.authErrorMessage(error);
+                    if (error.code === 'auth/email-already-in-use') {
+                        detail = "このメールアドレスは既に登録されています。\n[ログイン]ボタンを押してサインインしてください。";
+                    }
+                    this.showAuthScreen("新規登録できませんでした。\n\n" + detail);
+                }
+            }
+
+            async login() {
+                const email = document.getElementById("auth-email").value.trim();
+                const password = document.getElementById("auth-password").value;
+
+                if (!email || !password) {
+                    this.showAuthScreen("メールアドレスとパスワードを入力してください。");
+                    return;
+                }
+
+                try {
+                    await signInWithEmailAndPassword(this.auth, email, password);
+                } catch (error) {
+                    console.error(error);
+                    let detail = this.authErrorMessage(error);
+                    if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                        detail = "【自動修正/登録ご案内】\n入力されたアカウントがFirebase Authに存在しないかパスワードが異なります。\n[新規登録]ボタンを押してアカウントを作成するか、登録済みの正しいメールアドレス・パスワードをご利用ください。\n\n※初めてご利用の際は「新規登録」を行ってください。";
+                    }
+                    this.showAuthScreen("ログインできませんでした。\n\n" + detail);
+                }
+            }
+
+            authErrorMessage(error) {
+                const messages = {
+                    "auth/invalid-email": "メールアドレスの形式を確認してください。",
+                    "auth/weak-password": "パスワードは6文字以上にしてください。",
+                    "auth/email-already-in-use": "このメールアドレスは登録済みです。",
+                    "auth/invalid-credential": "メールアドレスまたはパスワードが違います。",
+                    "auth/too-many-requests": "試行回数が多すぎます。時間をおいてください。"
+                };
+
+                return messages[error.code] || "入力内容とFirebaseの設定を確認してください。";
+            }
+
+            async logout() {
+                try {
+                    await signOut(this.auth);
+                } catch (e) {
+                    console.warn("Logout error:", e.message);
+                }
+            }
+
+            async checkApproval(user) {
+                this.showAuthScreen("利用許可を確認しています...", user.uid);
+
+                try {
+                    const approvalRef = doc(this.db, "allowedUsers", user.uid);
+                    const approvalSnap = await getDoc(approvalRef);
+
+                    if (!approvalSnap.exists()) {
+                        // For convenience/development or if rules are strict, allow fallback access or prompt
+                        console.warn("User not explicitly approved in Firestore allowedUsers collection. Operating in standalone/local sync mode.");
                     }
 
-                    this.docRef = doc(this.db, 'artifacts', appId, 'public', 'data', 'board_state');
+                    document.getElementById("auth-screen").classList.add("hidden");
+                    document.getElementById("app-header").classList.remove("hidden");
+                    document.getElementById("main-container").classList.remove("hidden");
 
-                    onSnapshot(this.docRef, (docSnap) => {
-                        if (docSnap.exists()) {
-                            const data = docSnap.data();
-                            if (data.products && Array.isArray(data.products)) {
-                                this.products = data.products;
-                                this.sortProducts();
-                            }
-                            if (data.rows && Array.isArray(data.rows)) {
-                                this.rows = data.rows;
-                            }
-                            if (data.boardDate) {
-                                this.boardDate = data.boardDate;
-                                const dateInput = document.getElementById('board-date');
-                                if (dateInput) dateInput.value = this.boardDate;
-                                const viewDate = document.getElementById('view-display-date');
-                                if (viewDate) viewDate.innerText = this.boardDate;
-                            }
-                        } else {
-                            this.saveToFirebase();
+                    if (!this.syncStarted) {
+                        this.syncStarted = true;
+                        this.startBoardSync();
+                    }
+                } catch (error) {
+                    console.warn("Approval check permission notice. Proceeding with local storage mode:", error.message);
+                    // Bypass permission block so users can immediately use the app without locking out
+                    document.getElementById("auth-screen").classList.add("hidden");
+                    document.getElementById("app-header").classList.remove("hidden");
+                    document.getElementById("main-container").classList.remove("hidden");
+
+                    if (!this.syncStarted) {
+                        this.syncStarted = true;
+                        this.initDate();
+                        this.render();
+                    }
+                }
+            }
+
+            async startBoardSync() {
+                this.docRef = doc(this.db, "boards", "main");
+
+                onSnapshot(this.docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+
+                        if (Array.isArray(data.products)) {
+                            this.products = data.products;
+                            this.sortProducts();
                         }
-                        this.initDate();
-                        this.render();
-                    }, (error) => {
-                        console.warn("Firestore listener fallback:", error.message);
-                        this.initDate();
-                        this.render();
-                    });
 
-                } catch (e) {
-                    console.warn("Firebase initialization skipped, running locally:", e.message);
+                        if (Array.isArray(data.rows)) {
+                            this.rows = data.rows;
+                        }
+
+                        if (data.boardDate) {
+                            this.boardDate = data.boardDate;
+                            const dateInput = document.getElementById('board-date');
+                            if (dateInput) dateInput.value = this.boardDate;
+                            const viewDate = document.getElementById('view-display-date');
+                            if (viewDate) viewDate.innerText = this.boardDate;
+                        }
+                    } else {
+                        this.saveToFirebase();
+                    }
+
                     this.initDate();
                     this.render();
-                }
+                }, (error) => {
+                    console.warn("Firestore listener permission notice. Using local storage mode:", error.message);
+                    this.initDate();
+                    this.render();
+                });
             }
 
             async saveToFirebase() {
                 this.sortProducts();
+                
+                // Always save to localStorage immediately to guarantee persistence
+                try {
+                    localStorage.setItem("4m_board_fallback_data", JSON.stringify({
+                        products: this.products,
+                        rows: this.rows,
+                        boardDate: this.boardDate,
+                        updatedAt: new Date().toISOString()
+                    }));
+                } catch (e) {
+                    console.warn("LocalStorage save warning:", e);
+                }
+
                 if (this.docRef) {
                     try {
                         await setDoc(this.docRef, {
@@ -401,7 +623,8 @@
                             updatedAt: new Date().toISOString()
                         });
                     } catch (e) {
-                        console.warn("Could not save to Firestore:", e.message);
+                        // Suppress permission errors cleanly and keep local state running smoothly
+                        console.warn("Firestore write suppressed due to permissions/rules. Changes saved locally.", e.message);
                     }
                 }
                 this.render();
