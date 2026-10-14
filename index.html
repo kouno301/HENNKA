@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+    <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -93,10 +93,10 @@
             <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
                 <div class="flex flex-wrap items-center gap-4 text-xs font-medium">
                     <span class="text-slate-500 uppercase tracking-wider font-bold">4M凡例:</span>
-                    <span class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-cyan-600 text-white flex items-center justify-center text-[10px] font-bold">M</span> Man (人)</span>
-                    <span class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-cyan-600 text-white flex items-center justify-center text-[10px] font-bold">M</span> Machine (機械)</span>
-                    <span class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-cyan-600 text-white flex items-center justify-center text-[10px] font-bold">M</span> Material (材料)</span>
-                    <span class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-cyan-600 text-white flex items-center justify-center text-[10px] font-bold">M</span> Method (方法)</span>
+                    <span class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">人</span> Man (人)</span>
+                    <span class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">機</span> Machine (機械)</span>
+                    <span class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">材</span> Material (材料)</span>
+                    <span class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">方</span> Method (方法)</span>
                     <span class="text-slate-400">| クリック: 未選択(グレー) ➔ 1回=青(通常) ➔ 2回=赤(重要) ➔ 解除</span>
                 </div>
                 <div class="flex items-center gap-3">
@@ -199,7 +199,7 @@
                 </h3>
                 <button onclick="app.closeProductModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
-            <p class="text-xs text-slate-500">ボードで選択できる生産品の一覧です。新しい生産品を自由に追加したり編集・削除できます。</p>
+            <p class="text-xs text-slate-500">ボードで選択できる生産品の一覧です（50音順で自動ソートされます）。</p>
             
             <div class="flex gap-2">
                 <input type="text" id="new-product-input" placeholder="新しい生産品名を入力..." class="flex-grow border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500">
@@ -233,7 +233,11 @@
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
         const DEFAULT_PRODUCTS = [
             "310D FRピラー材着",
             "310D CTRピラー材着",
@@ -245,7 +249,7 @@
             "520F サイドメンバー材"
         ];
 
-        const DEFAULT_DATA = [
+        const DEFAULT_ROWS = [
             {
                 id: "101",
                 machineNo: "101号機",
@@ -310,13 +314,101 @@
 
         class ManagementApp {
             constructor() {
-                this.storageKey = "4m_board_data_single_v3";
-                this.productKey = "4m_board_products_single_v3";
-                this.dateKey = "4m_board_date_single_v3";
                 this.currentTab = "input";
-                this.loadMasterProducts();
-                this.loadData();
-                this.initDate();
+                this.products = [...DEFAULT_PRODUCTS];
+                this.sortProducts();
+                this.rows = JSON.parse(JSON.stringify(DEFAULT_ROWS));
+                this.boardDate = new Date().toISOString().split('T')[0];
+                this.db = null;
+                this.docRef = null;
+
+                this.initFirebase();
+            }
+
+            async initFirebase() {
+                try {
+                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'henkaten-d7f9e';
+                    const firebaseConfig = {
+                        apiKey: "AIzaSyAgxeG2-X3jdVu5-KsL3O-zCW8dxIh5wPY",
+                        authDomain: "henkaten-d7f9e.firebaseapp.com",
+                        projectId: "henkaten-d7f9e",
+                        storageBucket: "henkaten-d7f9e.firebasestorage.app",
+                        messagingSenderId: "540767366386",
+                        appId: "1:540767366386:web:87f1d29a83c7c15496f46b",
+                        measurementId: "G-TJ9X1V5F2J"
+                    };
+
+                    const app = initializeApp(firebaseConfig);
+                    const auth = getAuth(app);
+                    this.db = getFirestore(app);
+
+                    // Attempt authentication safely with fallback to local state if auth isn't enabled in project
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (authErr) {
+                        console.warn("Auth not enabled or failed, running in standalone local mode:", authErr.message);
+                    }
+
+                    this.docRef = doc(this.db, 'artifacts', appId, 'public', 'data', 'board_state');
+
+                    onSnapshot(this.docRef, (docSnap) => {
+                        if (docSnap.exists()) {
+                            const data = docSnap.data();
+                            if (data.products && Array.isArray(data.products)) {
+                                this.products = data.products;
+                                this.sortProducts();
+                            }
+                            if (data.rows && Array.isArray(data.rows)) {
+                                this.rows = data.rows;
+                            }
+                            if (data.boardDate) {
+                                this.boardDate = data.boardDate;
+                                const dateInput = document.getElementById('board-date');
+                                if (dateInput) dateInput.value = this.boardDate;
+                                const viewDate = document.getElementById('view-display-date');
+                                if (viewDate) viewDate.innerText = this.boardDate;
+                            }
+                        } else {
+                            this.saveToFirebase();
+                        }
+                        this.initDate();
+                        this.render();
+                    }, (error) => {
+                        console.warn("Firestore sync running in local fallback mode:", error.message);
+                        this.initDate();
+                        this.render();
+                    });
+
+                } catch (e) {
+                    console.warn("Firebase initialization skipped, using local storage mode:", e.message);
+                    this.initDate();
+                    this.render();
+                }
+            }
+
+            async saveToFirebase() {
+                this.sortProducts();
+                if (this.docRef) {
+                    try {
+                        await setDoc(this.docRef, {
+                            products: this.products,
+                            rows: this.rows,
+                            boardDate: this.boardDate,
+                            updatedAt: new Date().toISOString()
+                        });
+                    } catch (e) {
+                        console.warn("Could not write to Firestore (saving locally):", e.message);
+                    }
+                }
+                this.render();
+            }
+
+            sortProducts() {
+                this.products.sort((a, b) => a.localeCompare(b, 'ja', { numeric: true, sensitivity: 'base' }));
             }
 
             switchTab(tabName) {
@@ -338,74 +430,29 @@
                     viewContainer.classList.remove('hidden');
                     btnView.className = "px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold transition shadow-sm flex items-center gap-1.5";
                     btnInput.className = "px-3 py-1.5 text-emerald-200 hover:text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5";
-                    // Full-width max-w-full when view sheet is active
                     mainContainer.className = "flex-grow max-w-full w-full mx-auto p-2 md:p-4 flex flex-col gap-6 transition-all duration-300";
                     this.renderPreview();
                 }
             }
 
-            loadMasterProducts() {
-                const saved = localStorage.getItem(this.productKey);
-                if (saved) {
-                    try {
-                        this.products = JSON.parse(saved);
-                    } catch (e) {
-                        this.products = [...DEFAULT_PRODUCTS];
-                    }
-                } else {
-                    this.products = [...DEFAULT_PRODUCTS];
-                }
-            }
-
-            saveMasterProducts() {
-                localStorage.setItem(this.productKey, JSON.stringify(this.products));
-                this.render();
-            }
-
-            loadData() {
-                const saved = localStorage.getItem(this.storageKey);
-                if (saved) {
-                    try {
-                        this.rows = JSON.parse(saved);
-                        this.rows.forEach(r => {
-                            if (!r.processes) {
-                                r.processes = [
-                                    { name: "組付", m_man: 0, m_machine: 0, m_material: 0, m_method: 0, content: "", action: "", assignee: "", judgment: "正常" },
-                                    { name: "検査", m_man: 0, m_machine: 0, m_material: 0, m_method: 0, content: "", action: "", assignee: "", judgment: "正常" }
-                                ];
-                            }
-                            r.processes.forEach(p => {
-                                p.m_man = Number(p.m_man) === 1 || Number(p.m_man) === 2 ? Number(p.m_man) : 0;
-                                p.m_machine = Number(p.m_machine) === 1 || Number(p.m_machine) === 2 ? Number(p.m_machine) : 0;
-                                p.m_material = Number(p.m_material) === 1 || Number(p.m_material) === 2 ? Number(p.m_material) : 0;
-                                p.m_method = Number(p.m_method) === 1 || Number(p.m_method) === 2 ? Number(p.m_method) : 0;
-                            });
-                        });
-                    } catch (e) {
-                        this.rows = JSON.parse(JSON.stringify(DEFAULT_DATA));
-                    }
-                } else {
-                    this.rows = JSON.parse(JSON.stringify(DEFAULT_DATA));
-                }
-            }
-
-            saveData() {
-                localStorage.setItem(this.storageKey, JSON.stringify(this.rows));
-                localStorage.setItem(this.dateKey, document.getElementById('board-date').value);
-                this.render();
-            }
-
             initDate() {
                 const dateInput = document.getElementById('board-date');
-                const savedDate = localStorage.getItem(this.dateKey);
-                const today = new Date().toISOString().split('T')[0];
-                dateInput.value = savedDate || today;
+                if (dateInput) {
+                    if (!dateInput.value) {
+                        dateInput.value = this.boardDate;
+                    } else {
+                        this.boardDate = dateInput.value;
+                    }
 
-                dateInput.addEventListener('change', () => {
-                    localStorage.setItem(this.dateKey, dateInput.value);
-                    document.getElementById('view-display-date').innerText = dateInput.value;
-                });
-                document.getElementById('view-display-date').innerText = dateInput.value;
+                    dateInput.onchange = () => {
+                        this.boardDate = dateInput.value;
+                        const viewDate = document.getElementById('view-display-date');
+                        if (viewDate) viewDate.innerText = this.boardDate;
+                        this.saveToFirebase();
+                    };
+                }
+                const viewDate = document.getElementById('view-display-date');
+                if (viewDate) viewDate.innerText = this.boardDate;
             }
 
             hasRedChangePoint() {
@@ -421,9 +468,29 @@
 
             render() {
                 const tbody = document.getElementById('table-body');
+                if (!tbody) return;
                 tbody.innerHTML = "";
 
                 const hasRed = this.hasRedChangePoint();
+                const dot = document.getElementById('status-indicator-dot');
+                const badge = document.getElementById('status-indicator-badge');
+                const viewBadge = document.getElementById('view-status-badge');
+
+                if (hasRed) {
+                    if (dot) dot.className = "inline-block w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse";
+                    if (badge) badge.innerText = "重要変化点あり";
+                    if (viewBadge) {
+                        viewBadge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 animate-pulse";
+                        viewBadge.innerText = "重要変化点あり";
+                    }
+                } else {
+                    if (dot) dot.className = "inline-block w-2.5 h-2.5 rounded-full bg-emerald-400";
+                    if (badge) badge.innerText = "変化点なし";
+                    if (viewBadge) {
+                        viewBadge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800";
+                        viewBadge.innerText = "変化点なし";
+                    }
+                }
 
                 this.rows.forEach((row, rowIndex) => {
                     row.processes.forEach((proc, pIndex) => {
@@ -466,10 +533,10 @@
                             </td>
                             <td class="p-3 border-r border-slate-200 text-center bg-slate-100/30 align-middle w-80">
                                 <div class="grid grid-cols-4 gap-2 justify-items-center">
-                                    ${this.render4MButton(row.id, pIndex, 'm_man', Number(proc.m_man) || 0, '人 (Man)')}
-                                    ${this.render4MButton(row.id, pIndex, 'm_machine', Number(proc.m_machine) || 0, '機械 (Machine)')}
-                                    ${this.render4MButton(row.id, pIndex, 'm_material', Number(proc.m_material) || 0, '材料 (Material)')}
-                                    ${this.render4MButton(row.id, pIndex, 'm_method', Number(proc.m_method) || 0, '方法 (Method)')}
+                                    ${this.render4MButton(row.id, pIndex, 'm_man', Number(proc.m_man) || 0, '人')}
+                                    ${this.render4MButton(row.id, pIndex, 'm_machine', Number(proc.m_machine) || 0, '機')}
+                                    ${this.render4MButton(row.id, pIndex, 'm_material', Number(proc.m_material) || 0, '材')}
+                                    ${this.render4MButton(row.id, pIndex, 'm_method', Number(proc.m_method) || 0, '方')}
                                 </div>
                             </td>
                             <td class="p-3 border-r border-slate-200 align-middle">
@@ -505,62 +572,199 @@
                         tbody.appendChild(tr);
                     });
                 });
+            }
 
-                const badge = document.getElementById('status-indicator-badge');
-                const dot = document.getElementById('status-indicator-dot');
-                if (hasRed) {
-                    badge.innerHTML = '<span class="text-amber-300 font-bold">変化点あり</span>';
-                    dot.className = "inline-block w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse";
-                } else {
-                    badge.innerHTML = '<span class="text-emerald-200">変化点なし</span>';
-                    dot.className = "inline-block w-2.5 h-2.5 rounded-full bg-emerald-400";
+            render4MButton(rowId, pIndex, fieldName, val, textContent) {
+                let bgClass = "bg-slate-200 text-slate-500 hover:bg-slate-300";
+
+                if (val === 1) {
+                    bgClass = "bg-blue-600 text-white shadow-sm ring-2 ring-blue-300";
+                } else if (val === 2) {
+                    bgClass = "bg-red-600 text-white shadow-sm ring-2 ring-red-300 animate-pulse";
                 }
 
+                return `<button type="button" onclick="app.toggle4M('${rowId}', ${pIndex}, '${fieldName}')" class="w-8 h-8 rounded-lg font-bold text-xs flex items-center justify-center transition ${bgClass}" title="${textContent}: クリックで変更">${textContent}</button>`;
+            }
+
+            toggle4M(rowId, pIndex, fieldName) {
+                const row = this.rows.find(r => r.id === rowId);
+                if (!row) return;
+                const proc = row.processes[pIndex];
+                let current = Number(proc[fieldName]) || 0;
+                
+                if (current === 0) proc[fieldName] = 1;
+                else if (current === 1) proc[fieldName] = 2;
+                else proc[fieldName] = 0;
+
+                this.saveToFirebase();
                 if (this.currentTab === 'view') {
                     this.renderPreview();
                 }
             }
 
+            updateMachineField(rowId, field, value) {
+                const row = this.rows.find(r => r.id === rowId);
+                if (row) {
+                    row[field] = value;
+                    this.saveToFirebase();
+                }
+            }
+
+            updateProcessField(rowId, pIndex, field, value) {
+                const row = this.rows.find(r => r.id === rowId);
+                if (row && row.processes[pIndex]) {
+                    row.processes[pIndex][field] = value;
+                    this.saveToFirebase();
+                }
+            }
+
+            addRow() {
+                const newId = String(Date.now()).slice(-4);
+                const newRow = {
+                    id: newId,
+                    machineNo: `${newId.slice(-2)}号機`,
+                    productName: this.products[0] || "標準生産品",
+                    status: "稼働",
+                    processes: [
+                        { name: "組付", m_man: 0, m_machine: 0, m_material: 0, m_method: 0, content: "", action: "", assignee: "", judgment: "正常" },
+                        { name: "検査", m_man: 0, m_machine: 0, m_material: 0, m_method: 0, content: "", action: "", assignee: "", judgment: "正常" }
+                    ]
+                };
+                this.rows.push(newRow);
+                this.saveToFirebase();
+                this.showAlert("追加完了", "新しい号機を追加しました。", "success");
+            }
+
+            deleteRow(rowId) {
+                if (this.rows.length <= 1) {
+                    this.showAlert("削除できません", "最低1つの号機が必要です。", "warning");
+                    return;
+                }
+                this.rows = this.rows.filter(r => r.id !== rowId);
+                this.saveToFirebase();
+                this.showAlert("削除完了", "号機データを削除しました。", "success");
+            }
+
+            resetToDefault() {
+                if (confirm("全てのデータを初期状態に戻しますか？")) {
+                    this.rows = JSON.parse(JSON.stringify(DEFAULT_ROWS));
+                    this.products = [...DEFAULT_PRODUCTS];
+                    this.saveToFirebase();
+                    this.showAlert("初期化完了", "初期データにリセットしました。", "success");
+                }
+            }
+
+            exportJSON() {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+                    date: this.boardDate,
+                    products: this.products,
+                    rows: this.rows
+                }, null, 2));
+                const downloadAnchor = document.createElement('a');
+                downloadAnchor.setAttribute("href", dataStr);
+                downloadAnchor.setAttribute("download", `4m_change_board_${this.boardDate}.json`);
+                document.body.appendChild(downloadAnchor);
+                downloadAnchor.click();
+                downloadAnchor.remove();
+                this.showAlert("保存完了", "データをJSONファイルとして保存しました。", "success");
+            }
+
+            openProductModal() {
+                document.getElementById('product-modal').classList.remove('hidden');
+                this.renderProductMasterList();
+            }
+
+            closeProductModal() {
+                document.getElementById('product-modal').classList.add('hidden');
+                this.render();
+            }
+
+            renderProductMasterList() {
+                const container = document.getElementById('product-list-container');
+                if (!container) return;
+                container.innerHTML = "";
+                this.products.forEach((prod, idx) => {
+                    const div = document.createElement('div');
+                    div.className = "flex items-center justify-between p-2.5 text-xs hover:bg-slate-50";
+                    div.innerHTML = `
+                        <span class="font-medium text-slate-700">${prod}</span>
+                        <div class="flex items-center gap-2">
+                            <button onclick="app.editProductMaster(${idx})" class="text-slate-400 hover:text-cyan-600 px-2 py-1"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="app.deleteProductMaster(${idx})" class="text-slate-400 hover:text-red-600 px-2 py-1"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+            }
+
+            addProductMaster() {
+                const input = document.getElementById('new-product-input');
+                const val = input.value.trim();
+                if (!val) return;
+                if (this.products.includes(val)) {
+                    this.showAlert("エラー", "すでに登録されている生産品名です。", "warning");
+                    return;
+                }
+                this.products.push(val);
+                this.sortProducts();
+                input.value = "";
+                this.saveToFirebase();
+                this.renderProductMasterList();
+            }
+
+            editProductMaster(idx) {
+                const current = this.products[idx];
+                const newVal = prompt("生産品名を編集:", current);
+                if (newVal !== null && newVal.trim() !== "") {
+                    this.products[idx] = newVal.trim();
+                    this.sortProducts();
+                    this.saveToFirebase();
+                    this.renderProductMasterList();
+                }
+            }
+
+            deleteProductMaster(idx) {
+                if (this.products.length <= 1) {
+                    this.showAlert("削除できません", "最低1つの生産品が必要です。", "warning");
+                    return;
+                }
+                this.products.splice(idx, 1);
+                this.sortProducts();
+                this.saveToFirebase();
+                this.renderProductMasterList();
+            }
+
             renderPreview() {
                 const tbody = document.getElementById('preview-table-body');
+                if (!tbody) return;
                 tbody.innerHTML = "";
 
-                const hasRed = this.hasRedChangePoint();
-                const viewBadge = document.getElementById('view-status-badge');
-                if (hasRed) {
-                    viewBadge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500 text-white animate-pulse";
-                    viewBadge.innerText = "変化点あり";
-                } else {
-                    viewBadge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800";
-                    viewBadge.innerText = "変化点なし";
-                }
-
-                this.rows.forEach(row => {
+                this.rows.forEach((row, rowIndex) => {
                     row.processes.forEach((proc, pIndex) => {
                         const tr = document.createElement('tr');
-                        // text-base (larger text) while keeping layout/padding structure identical
-                        tr.className = "hover:bg-slate-50 transition text-base border-b border-slate-200 font-medium";
+                        tr.className = "hover:bg-slate-50 transition border-b border-slate-200";
 
                         const isStopped = row.status === "計画停止" || row.status === "停止";
-                        const statusClass = isStopped ? "bg-amber-100 text-amber-900 border border-amber-300 font-semibold" : "bg-amber-200 text-amber-900 font-bold border border-amber-400";
-
+                        const statusBg = isStopped ? "bg-amber-100 text-amber-900 font-bold" : "bg-amber-200 text-amber-900 font-bold";
+                        
                         let html = '';
+                        
                         if (pIndex === 0) {
                             html += `
                                 <td class="p-3.5 border-r border-slate-200 bg-slate-50 align-middle text-center font-bold text-slate-800 w-28" rowspan="2">
-                                    ${row.machineNo}
+                                    <span class="text-base">${row.machineNo}</span>
                                 </td>
-                                <td class="p-3.5 border-r border-slate-200 bg-slate-50 align-middle font-bold text-slate-800 w-52" rowspan="2">
+                                <td class="p-3.5 border-r border-slate-200 bg-slate-50 align-middle font-medium w-52" rowspan="2">
                                     ${row.productName}
                                 </td>
                                 <td class="p-3.5 border-r border-slate-200 bg-slate-50 align-middle text-center w-28" rowspan="2">
-                                    <span class="inline-block px-2.5 py-1 rounded text-sm text-center ${statusClass}">${row.status}</span>
+                                    <span class="px-3 py-1 rounded-lg text-sm font-bold ${statusBg}">${row.status}</span>
                                 </td>
                             `;
                         }
 
                         html += `
-                            <td class="p-3.5 border-r border-slate-200 font-bold text-slate-800 text-center bg-slate-100/70 align-middle w-24">
+                            <td class="p-3.5 border-r border-slate-200 font-bold text-slate-700 text-center bg-slate-100/70 align-middle w-24">
                                 ${proc.name}
                             </td>
                             <td class="p-3.5 border-r border-slate-200 text-center bg-slate-100/30 align-middle w-80">
@@ -571,11 +775,11 @@
                                     ${this.renderPreview4MBadge(Number(proc.m_method) || 0, '方')}
                                 </div>
                             </td>
-                            <td class="p-3.5 border-r border-slate-200 align-middle whitespace-pre-wrap text-slate-800">${proc.content || '-'}</td>
-                            <td class="p-3.5 border-r border-slate-200 align-middle whitespace-pre-wrap text-slate-800">${proc.action || '-'}</td>
-                            <td class="p-3.5 border-r border-slate-200 align-middle text-center font-bold w-20">${proc.assignee || '-'}</td>
-                            <td class="p-3.5 text-center align-middle font-bold w-24 ${proc.judgment === '異常' ? 'text-red-600 bg-red-50' : 'text-emerald-700'}">
-                                ${proc.judgment}
+                            <td class="p-3.5 border-r border-slate-200 align-middle text-slate-700 whitespace-pre-wrap">${proc.content || '—'}</td>
+                            <td class="p-3.5 border-r border-slate-200 align-middle text-slate-700 whitespace-pre-wrap">${proc.action || '—'}</td>
+                            <td class="p-3.5 border-r border-slate-200 align-middle text-center font-medium w-20">${proc.assignee || '—'}</td>
+                            <td class="p-3.5 text-center align-middle w-24">
+                                <span class="px-2.5 py-1 rounded-lg text-xs font-bold ${proc.judgment === '異常' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}">${proc.judgment}</span>
                             </td>
                         `;
 
@@ -585,187 +789,30 @@
                 });
             }
 
-            render4MButton(id, pIndex, field, stateValue, titleText) {
-                let btnClass = "bg-white text-slate-400 border border-slate-300 hover:bg-slate-200";
-                let labelChar = field === 'm_man' ? '人' : field === 'm_machine' ? '機' : field === 'm_material' ? '材' : '方';
-                
-                if (stateValue === 1) {
-                    btnClass = "bg-cyan-600 text-white font-bold ring-2 ring-cyan-300 shadow-sm";
-                } else if (stateValue === 2) {
-                    btnClass = "bg-red-600 text-white font-bold ring-2 ring-red-300 shadow-sm";
+            renderPreview4MBadge(val, label) {
+                if (val === 1) {
+                    return `<span class="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow">${label}</span>`;
+                } else if (val === 2) {
+                    return `<span class="w-8 h-8 rounded-lg bg-red-600 text-white font-bold text-xs flex items-center justify-center shadow animate-pulse">${label}</span>`;
                 }
-
-                return `<button type="button" onclick="app.cycle4M('${id}', ${pIndex}, '${field}')" title="${titleText} (未選択➔青➔赤)" class="w-7 h-7 rounded-full flex items-center justify-center transition ${btnClass}">${labelChar}</button>`;
+                return `<span class="w-8 h-8 rounded-lg bg-slate-200 text-slate-400 font-bold text-xs flex items-center justify-center">${label}</span>`;
             }
 
-            renderPreview4MBadge(stateValue, labelChar) {
-                let badgeClass = "bg-slate-100 text-slate-400 border border-slate-200";
-                if (stateValue === 1) {
-                    badgeClass = "bg-cyan-600 text-white font-bold shadow-sm";
-                } else if (stateValue === 2) {
-                    badgeClass = "bg-red-600 text-white font-bold shadow-sm";
-                }
-                // Larger font and slightly bolder text for view sheet badges
-                return `<div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${badgeClass}">${labelChar}</div>`;
-            }
-
-            cycle4M(id, pIndex, mField) {
-                const row = this.rows.find(r => r.id === id);
-                if (row && row.processes[pIndex]) {
-                    let current = Number(row.processes[pIndex][mField]) || 0;
-                    current = (current + 1) % 3;
-                    row.processes[pIndex][mField] = current;
-                    this.saveData();
-                }
-            }
-
-            updateMachineField(id, field, value) {
-                const row = this.rows.find(r => r.id === id);
-                if (row) {
-                    row[field] = value;
-                    this.saveData();
-                }
-            }
-
-            updateProcessField(id, pIndex, field, value) {
-                const row = this.rows.find(r => r.id === id);
-                if (row && row.processes[pIndex]) {
-                    row.processes[pIndex][field] = value;
-                    this.saveData();
-                }
-            }
-
-            addRow() {
-                const newId = 'row-' + Date.now();
-                const nextNo = (this.rows.length + 101) + "号機";
-                this.rows.push({
-                    id: newId,
-                    machineNo: nextNo,
-                    productName: this.products[0] || "新規生産品",
-                    status: "稼働",
-                    processes: [
-                        { name: "組付", m_man: 0, m_machine: 0, m_material: 0, m_method: 0, content: "", action: "", assignee: "", judgment: "正常" },
-                        { name: "検査", m_man: 0, m_machine: 0, m_material: 0, m_method: 0, content: "", action: "", assignee: "", judgment: "正常" }
-                    ]
-                });
-                this.saveData();
-            }
-
-            deleteRow(id) {
-                if (this.rows.length <= 1) {
-                    this.showModal("警告", "これ以上号機を削除できません。", "error");
-                    return;
-                }
-                this.rows = this.rows.filter(r => r.id !== id);
-                this.saveData();
-            }
-
-            openProductModal() {
-                this.renderProductMasterList();
-                document.getElementById('product-modal').classList.remove('hidden');
-            }
-
-            closeProductModal() {
-                document.getElementById('product-modal').classList.add('hidden');
-            }
-
-            renderProductMasterList() {
-                const container = document.getElementById('product-list-container');
-                container.innerHTML = "";
-                this.products.forEach((prod, idx) => {
-                    const div = document.createElement('div');
-                    div.className = "flex items-center justify-between px-3 py-2 text-xs gap-2";
-                    div.innerHTML = `
-                        <input type="text" value="${prod}" onchange="app.editProductMaster(${idx}, this.value)" class="flex-grow border border-slate-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-cyan-500 focus:outline-none">
-                        <button onclick="app.removeProductMaster(${idx})" class="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50 transition" title="削除"><i class="fa-solid fa-trash-can"></i></button>
-                    `;
-                    container.appendChild(div);
-                });
-            }
-
-            addProductMaster() {
-                const input = document.getElementById('new-product-input');
-                const val = input.value.trim();
-                if (!val) {
-                    this.showModal("警告", "生産品名を入力してください。", "error");
-                    return;
-                }
-                if (this.products.includes(val)) {
-                    this.showModal("警告", "すでに登録されている生産品名です。", "error");
-                    return;
-                }
-                this.products.push(val);
-                input.value = "";
-                this.saveMasterProducts();
-                this.renderProductMasterList();
-            }
-
-            editProductMaster(index, newValue) {
-                const val = newValue.trim();
-                if (!val) {
-                    this.showModal("警告", "空の生産品名は登録できません。", "error");
-                    this.renderProductMasterList();
-                    return;
-                }
-                if (this.products.includes(val) && this.products[index] !== val) {
-                    this.showModal("警告", "すでに存在する生産品名です。", "error");
-                    this.renderProductMasterList();
-                    return;
-                }
-                this.products[index] = val;
-                this.saveMasterProducts();
-            }
-
-            removeProductMaster(index) {
-                if (this.products.length <= 1) {
-                    this.showModal("警告", "すべての生産品を削除することはできません。", "error");
-                    return;
-                }
-                this.products.splice(index, 1);
-                this.saveMasterProducts();
-                this.renderProductMasterList();
-            }
-
-            resetToDefault() {
-                if (confirm("データを初期状態に戻しますか？")) {
-                    this.products = [...DEFAULT_PRODUCTS];
-                    this.rows = JSON.parse(JSON.stringify(DEFAULT_DATA));
-                    const today = new Date().toISOString().split('T')[0];
-                    document.getElementById('board-date').value = today;
-                    document.getElementById('view-display-date').innerText = today;
-                    localStorage.removeItem(this.productKey);
-                    this.saveData();
-                    this.showModal("初期化完了", "ボードデータを初期値に戻しました。", "success");
-                }
-            }
-
-            exportJSON() {
-                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
-                    date: document.getElementById('board-date').value,
-                    products: this.products,
-                    rows: this.rows
-                }, null, 2));
-                const dlAnchor = document.createElement('a');
-                dlAnchor.setAttribute("href", dataStr);
-                dlAnchor.setAttribute("download", `4m_board_${document.getElementById('board-date').value}.json`);
-                document.body.appendChild(dlAnchor);
-                dlAnchor.click();
-                dlAnchor.remove();
-            }
-
-            showModal(title, message, type = "success") {
+            showAlert(title, message, type = "success") {
+                const modal = document.getElementById('custom-modal');
                 document.getElementById('modal-title').innerText = title;
                 document.getElementById('modal-message').innerText = message;
-                const icon = document.getElementById('modal-icon');
                 const iconContainer = document.getElementById('modal-icon-container');
-                if (type === "error") {
-                    icon.className = "fa-solid fa-triangle-exclamation text-red-600";
-                    iconContainer.className = "w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto text-xl";
+                const icon = document.getElementById('modal-icon');
+
+                if (type === "success") {
+                    iconContainer.className = "w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-xl";
+                    icon.className = "fa-solid fa-check";
                 } else {
-                    icon.className = "fa-solid fa-check text-emerald-600";
-                    iconContainer.className = "w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto text-xl";
+                    iconContainer.className = "w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-xl";
+                    icon.className = "fa-solid fa-triangle-exclamation";
                 }
-                document.getElementById('custom-modal').classList.remove('hidden');
+                modal.classList.remove('hidden');
             }
 
             closeModal() {
@@ -774,9 +821,7 @@
         }
 
         const app = new ManagementApp();
-        window.onload = () => {
-            app.render();
-        };
+        window.app = app;
     </script>
 </body>
-</html>    
+</html>
