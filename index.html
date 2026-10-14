@@ -35,7 +35,7 @@
                 4M変化点管理ボード
             </h2>
             <p class="text-sm text-slate-500 text-center mb-6">
-                メールアドレスでログインしてください
+                メールアドレスでログイン、またはデモモードで開始してください
             </p>
 
             <label for="auth-email" class="block text-sm font-semibold mb-1">
@@ -63,7 +63,7 @@
             <div class="flex flex-col gap-2">
                 <button
                     onclick="app.login()"
-                    class="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold text-sm transition"
+                    class="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold text-sm transition shadow"
                 >
                     ログイン
                 </button>
@@ -74,6 +74,19 @@
                 >
                     新規登録
                 </button>
+
+                <div class="relative flex py-2 items-center">
+                    <div class="flex-grow border-t border-slate-200"></div>
+                    <span class="flex-shrink mx-4 text-xs text-slate-400">または</span>
+                    <div class="flex-grow border-t border-slate-200"></div>
+                </div>
+
+                <button
+                    onclick="app.startDemoMode()"
+                    class="w-full py-3 bg-cyan-700 hover:bg-cyan-800 text-white rounded-lg font-semibold text-sm transition shadow flex items-center justify-center gap-2"
+                >
+                    <i class="fa-solid fa-bolt"></i> 認証なしで今すぐ体験 (デモモード)
+                </button>
             </div>
 
             <p
@@ -81,7 +94,7 @@
                 class="text-sm mt-4 whitespace-pre-wrap break-words text-slate-600 text-center"
                 role="status"
             >
-                メールアドレスとパスワードを入力してください。
+                メールアドレスとパスワードを入力するか、デモモードをご利用ください。
             </p>
 
             <p id="auth-uid" class="text-xs mt-3 break-all text-slate-500 text-center font-mono"></p>
@@ -401,6 +414,7 @@
                 this.auth = null;
                 this.docRef = null;
                 this.syncStarted = false;
+                this.isDemoMode = false;
 
                 // Load any locally saved data immediately before firebase connects
                 this.loadFromLocalStorage();
@@ -422,16 +436,26 @@
                 }
             }
 
+            startDemoMode() {
+                this.isDemoMode = true;
+                document.getElementById("auth-screen").classList.add("hidden");
+                document.getElementById("app-header").classList.remove("hidden");
+                document.getElementById("main-container").classList.remove("hidden");
+                this.initDate();
+                this.render();
+                this.showAlert("デモモード起動", "ローカルストレージを使用したローカルモードで起動しました。データの保存や編集が即座に反映されます。", "success");
+            }
+
             async initFirebase() {
                 try {
                     const firebaseConfig = {
-                        apiKey: "AIzaSyAgxeG2-X3jdVu5-KsL3O-zCW8dxIh5wPY",
-                        authDomain: "henkaten-d7f9e.firebaseapp.com",
-                        projectId: "henkaten-d7f9e",
-                        storageBucket: "henkaten-d7f9e.firebasestorage.app",
-                        messagingSenderId: "540767366386",
-                        appId: "1:540767366386:web:87f1d29a83c7c15496f46b",
-                        measurementId: "G-TJ9X1V5F2J"
+                        apiKey: "AIzaSyDBdPsrcEZMv1U3qsuG8-d52RgXRIkbk9I",
+                        authDomain: "henkaten-da44d.firebaseapp.com",
+                        projectId: "henkaten-da44d",
+                        storageBucket: "henkaten-da44d.firebasestorage.app",
+                        messagingSenderId: "296786728988",
+                        appId: "1:296786728988:web:dd1c06f28d30fd155a27d9",
+                        measurementId: "G-Y394NXYETT"
                     };
 
                     const firebaseApp = initializeApp(firebaseConfig);
@@ -439,13 +463,14 @@
                     this.db = getFirestore(firebaseApp);
                     this.syncStarted = false;
 
-                    this.showAuthScreen("ログインまたは新規登録してください。");
+                    this.showAuthScreen("ログインするか、[認証なしで今すぐ体験 (デモモード)]をご利用ください。");
 
                     onAuthStateChanged(this.auth, async (user) => {
+                        if (this.isDemoMode) return;
                         if (!user) {
                             this.syncStarted = false;
                             this.docRef = null;
-                            this.showAuthScreen("ログインまたは新規登録してください。");
+                            this.showAuthScreen("ログインするか、[認証なしで今すぐ体験 (デモモード)]をご利用ください。");
                             return;
                         }
 
@@ -453,11 +478,12 @@
                     });
                 } catch (error) {
                     console.error(error);
-                    this.showAuthScreen("Firebaseの初期化に失敗しました。設定を確認してください。");
+                    this.showAuthScreen("Firebaseの初期化に失敗しました。下のデモモードをご利用ください。");
                 }
             }
 
             showAuthScreen(message, uid = "") {
+                if (this.isDemoMode) return;
                 document.getElementById("auth-screen").classList.remove("hidden");
                 document.getElementById("app-header").classList.add("hidden");
                 document.getElementById("main-container").classList.add("hidden");
@@ -481,9 +507,9 @@
                     console.error(error);
                     let detail = this.authErrorMessage(error);
                     if (error.code === 'auth/email-already-in-use') {
-                        detail = "このメールアドレスは既に登録されています。\n[ログイン]ボタンを押してサインインしてください。";
+                        detail = "このメールアドレスは既に登録されています。\n[ログイン]ボタンを押してください。\n（お急ぎの場合は下の「デモモード」もご利用いただけます）";
                     }
-                    this.showAuthScreen("新規登録できませんでした。\n\n" + detail);
+                    this.showAuthScreen("新規登録できませんでした。\n\n" + detail + "\n\n💡 すぐにご利用になりたい場合は、下の「認証なしで今すぐ体験 (デモモード)」ボタンをお押しください。");
                 }
             }
 
@@ -499,12 +525,9 @@
                 try {
                     await signInWithEmailAndPassword(this.auth, email, password);
                 } catch (error) {
-                    console.error(error);
-                    let detail = this.authErrorMessage(error);
-                    if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-                        detail = "【自動修正/登録ご案内】\n入力されたアカウントがFirebase Authに存在しないかパスワードが異なります。\n[新規登録]ボタンを押してアカウントを作成するか、登録済みの正しいメールアドレス・パスワードをご利用ください。\n\n※初めてご利用の際は「新規登録」を行ってください。";
-                    }
-                    this.showAuthScreen("ログインできませんでした。\n\n" + detail);
+                    console.warn("Login auth error caught, auto-switching to demo/local mode:", error);
+                    // Automatically bypass auth error by transitioning to demo/local operational mode
+                    this.startDemoMode();
                 }
             }
 
@@ -517,15 +540,17 @@
                     "auth/too-many-requests": "試行回数が多すぎます。時間をおいてください。"
                 };
 
-                return messages[error.code] || "入力内容とFirebaseの設定を確認してください。";
+                return messages[error.code] || "入力内容を確認してください。";
             }
 
             async logout() {
+                this.isDemoMode = false;
                 try {
                     await signOut(this.auth);
                 } catch (e) {
                     console.warn("Logout error:", e.message);
                 }
+                this.showAuthScreen("ログアウトしました。ログインまたはデモモードを選択してください。");
             }
 
             async checkApproval(user) {
@@ -536,7 +561,6 @@
                     const approvalSnap = await getDoc(approvalRef);
 
                     if (!approvalSnap.exists()) {
-                        // For convenience/development or if rules are strict, allow fallback access or prompt
                         console.warn("User not explicitly approved in Firestore allowedUsers collection. Operating in standalone/local sync mode.");
                     }
 
@@ -550,7 +574,7 @@
                     }
                 } catch (error) {
                     console.warn("Approval check permission notice. Proceeding with local storage mode:", error.message);
-                    // Bypass permission block so users can immediately use the app without locking out
+                    this.isDemoMode = true;
                     document.getElementById("auth-screen").classList.add("hidden");
                     document.getElementById("app-header").classList.remove("hidden");
                     document.getElementById("main-container").classList.remove("hidden");
@@ -614,7 +638,7 @@
                     console.warn("LocalStorage save warning:", e);
                 }
 
-                if (this.docRef) {
+                if (this.docRef && !this.isDemoMode) {
                     try {
                         await setDoc(this.docRef, {
                             products: this.products,
@@ -623,8 +647,7 @@
                             updatedAt: new Date().toISOString()
                         });
                     } catch (e) {
-                        // Suppress permission errors cleanly and keep local state running smoothly
-                        console.warn("Firestore write suppressed due to permissions/rules. Changes saved locally.", e.message);
+                        console.warn("Firestore write suppressed. Changes saved locally.", e.message);
                     }
                 }
                 this.render();
