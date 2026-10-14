@@ -1,4 +1,4 @@
-    <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -342,7 +342,7 @@
                     const auth = getAuth(app);
                     this.db = getFirestore(app);
 
-                    // Attempt authentication safely with fallback to local state if auth isn't enabled in project
+                    // Authentication with custom token or anonymous login with fallback
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await signInWithCustomToken(auth, __initial_auth_token);
@@ -350,7 +350,7 @@
                             await signInAnonymously(auth);
                         }
                     } catch (authErr) {
-                        console.warn("Auth not enabled or failed, running in standalone local mode:", authErr.message);
+                        console.warn("Auth initialization warning:", authErr.message);
                     }
 
                     this.docRef = doc(this.db, 'artifacts', appId, 'public', 'data', 'board_state');
@@ -378,13 +378,13 @@
                         this.initDate();
                         this.render();
                     }, (error) => {
-                        console.warn("Firestore sync running in local fallback mode:", error.message);
+                        console.warn("Firestore listener fallback:", error.message);
                         this.initDate();
                         this.render();
                     });
 
                 } catch (e) {
-                    console.warn("Firebase initialization skipped, using local storage mode:", e.message);
+                    console.warn("Firebase initialization skipped, running locally:", e.message);
                     this.initDate();
                     this.render();
                 }
@@ -401,7 +401,7 @@
                             updatedAt: new Date().toISOString()
                         });
                     } catch (e) {
-                        console.warn("Could not write to Firestore (saving locally):", e.message);
+                        console.warn("Could not save to Firestore:", e.message);
                     }
                 }
                 this.render();
